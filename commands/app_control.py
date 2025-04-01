@@ -1,120 +1,107 @@
-# commands/app_control.py
+# app_control.py - Handles opening applications
+
 import os
-import sys
-import re
 import subprocess
 import platform
+import re
+from logs.logger import log_action, log_error
+from config.constants import APP_OPEN_KEYWORDS
 
-# Import settings and modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config.constants import COMMON_APPS
-from logs.logger import logger
+# Dictionary of common applications and their commands for different platforms
+COMMON_APPS = {
+    "windows": {
+        "chrome": "start chrome",
+        "firefox": "start firefox",
+        "edge": "start msedge",
+        "notepad": "start notepad",
+        "word": "start winword",
+        "excel": "start excel",
+        "calculator": "start calc",
+        "explorer": "start explorer",
+        "cmd": "start cmd",
+        "powershell": "start powershell"
+    },
+    "darwin": {  # macOS
+        "chrome": "open -a 'Google Chrome'",
+        "firefox": "open -a Firefox",
+        "safari": "open -a Safari",
+        "textedit": "open -a TextEdit",
+        "calculator": "open -a Calculator",
+        "finder": "open -a Finder",
+        "terminal": "open -a Terminal"
+    },
+    "linux": {
+        "chrome": "google-chrome",
+        "firefox": "firefox",
+        "gedit": "gedit",
+        "calculator": "gnome-calculator",
+        "files": "nautilus",
+        "terminal": "gnome-terminal"
+    }
+}
 
-class AppControl:
-    def __init__(self, assistant):
-        self.assistant = assistant
-        self.system = platform.system()
-        logger.info(f"App control handler initialized for {self.system} platform")
+def open_application(command):
+    """
+    Open an application based on the command.
     
-    def handle(self, command, is_admin=False):
-        """
-        Handle application control commands
+    Args:
+        command (str): The command containing the app name
         
-        Args:
-            command (str): The command to open an application
-            is_admin (bool): Whether the user has admin privileges
+    Returns:
+        str: Response message
+    """
+    try:
+        # Get the current operating system
+        current_os = platform.system().lower()
+        if current_os == "darwin":
+            os_name = "macOS"
+        elif current_os == "windows":
+            os_name = "Windows"
+        elif current_os == "linux":
+            os_name = "Linux"
+        else:
+            os_name = "your operating system"
         
-        Returns:
-            bool: True if the command was handled successfully, False otherwise
-        """
-        try:
-            # Extract the application name from the command
-            app_name = self._extract_app_name(command)
-            
-            if not app_name:
-                self.assistant.respond("What application would you like me to open?")
-                return False
-            
-            logger.info(f"Attempting to open application: {app_name}")
-            
-            # Try to get the actual executable name for common apps
-            app_executable = self._get_app_executable(app_name)
-            
-            # Open the application
-            success = self._open_application(app_executable)
-            
-            if success:
-                self.assistant.respond(f"Opening {app_name}.")
-                return True
-            else:
-                self.assistant.respond(f"I couldn't find or open {app_name}.")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error opening application: {e}")
-            self.assistant.respond("I had trouble opening that application.")
-            return False
-    
-    def _extract_app_name(self, command):
-        """Extract the application name from the command"""
-        # Look for patterns like "open X", "start X", "launch X", "run X"
-        patterns = [
-            r'open\s+(.+)',
-            r'start\s+(.+)',
-            r'launch\s+(.+)',
-            r'run\s+(.+)'
-        ]
+        # Extract app name by removing open keywords
+        app_name = command.lower()
+        for keyword in APP_OPEN_KEYWORDS:
+            app_name = re.sub(f"{keyword}\\s+", "", app_name, flags=re.IGNORECASE)
         
-        for pattern in patterns:
-            match = re.search(pattern, command.lower())
-            if match:
-                return match.group(1).strip()
+        # Clean up the app name
+        app_name = app_name.strip()
         
-        return None
-    
-    def _get_app_executable(self, app_name):
-        """
-        Get the actual executable name for common applications
-        Or return the app_name if not found in common apps
-        """
-        # Check if it's a common app
-        for common_name, executable in COMMON_APPS.items():
-            if app_name.lower() == common_name.lower() or app_name.lower() in common_name.lower():
-                return executable
+        if not app_name:
+            return "Which application would you like me to open?"
         
-        # If not found in common apps, return the app name itself
-        return app_name
-    
-    def _open_application(self, app_name):
-        """Open an application based on the current operating system"""
-        try:
-            if self.system == 'Windows':
-                # Try to open using the start command
-                subprocess.Popen(f'start {app_name}', shell=True)
-                return True
+        log_action(f"Attempting to open application: {app_name}")
+        
+        # Get OS-specific app dictionary
+        if current_os in COMMON_APPS:
+            os_apps = COMMON_APPS[current_os]
             
-            elif self.system == 'Darwin':  # macOS
-                # Try to open using the open command
-                subprocess.Popen(['open', '-a', app_name])
-                return True
+            # Check if the app is in our dictionary
+            for app_key, app_command in os_apps.items():
+                if app_key in app_name or app_name in app_key:
+                    # Execute the command to open the application
+                    subprocess.Popen(app_command, shell=True)
+                    log_action(f"Opened application: {app_key}")
+                    return f"Opening {app_key} for you."
             
-            elif self.system == 'Linux':
-                # Try to open using various methods
-                try:
-                    subprocess.Popen([app_name])
-                except FileNotFoundError:
-                    try:
-                        # Try with the which command to find the executable
-                        app_path = subprocess.check_output(['which', app_name]).decode().strip()
-                        subprocess.Popen([app_path])
-                    except:
-                        return False
-                return True
+            # If app not found in dictionary, try to open it directly
+            if current_os == "windows":
+                subprocess.Popen(f"start {app_name}", shell=True)
+            elif current_os == "darwin":
+                subprocess.Popen(f"open -a '{app_name}'", shell=True)
+            elif current_os == "linux":
+                subprocess.Popen(app_name, shell=True)
             
-            else:
-                logger.error(f"Unsupported operating system: {self.system}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error opening application '{app_name}': {e}")
-            return False
+            log_action(f"Attempted to open unknown application: {app_name}")
+            return f"I've tried to open {app_name}, but I'm not sure if it exists on {os_name}."
+        
+        else:
+            log_error(f"Unsupported operating system: {current_os}")
+            return f"I'm not sure how to open applications on {os_name}."
+            
+    except Exception as e:
+        log_error(f"Error opening application: {app_name}", e)
+        return f"I encountered an error trying to open {app_name}. Please check if it's installed."

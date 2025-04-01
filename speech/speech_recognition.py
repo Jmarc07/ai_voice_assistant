@@ -1,55 +1,124 @@
-# speech/speech_recognition.py
-import os
-import sys
+# speech_recognition.py - Handles speech-to-text conversion
+
 import speech_recognition as sr
+import subprocess
+import shutil
+import os
+from logs.logger import log_action, log_error
+from config.settings import WAKEWORD, DEBUG_MODE
 
-# Import settings and logger
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config.settings import LANGUAGE
-from logs.logger import logger
+# Initialize recognizer globally for reuse
+recognizer = sr.Recognizer()
 
-class SpeechRecognizer:
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
-        self.language = LANGUAGE
+def check_audio_input_available():
+    """Check if audio input devices are available and functioning."""
+    # If we're already in debug mode, skip the check
+    if DEBUG_MODE:
+        return False
         
-        # Adjust for ambient noise level
-        self.adjust_for_ambient_noise()
+    # First check if we're in a headless or container environment
+    if 'DISPLAY' not in os.environ:
+        log_action("No display detected, likely headless environment", "WARNING")
+        return False
     
-    def adjust_for_ambient_noise(self):
-        """Adjust the recognizer sensitivity to ambient noise"""
-        logger.info("Adjusting for ambient noise...")
+    try:
+        # Try to list available microphones
+        mics = sr.Microphone.list_microphone_names()
+        if not mics:
+            log_action("No microphones found", "WARNING")
+            return False
+            
+        return True
+    except Exception as e:
+        log_action(f"Error checking microphone availability: {e}", "WARNING")
+        return False
+
+def listen(timeout=5, phrase_time_limit=None):
+    """
+    Listen to the microphone and convert speech to text.
+    
+    Args:
+        timeout (int): How long to wait before timing out (seconds)
+        phrase_time_limit (int, optional): Max length of phrase to detect
+    
+    Returns:
+        str: The recognized text, or empty string if nothing recognized
+    """
+    # Check if we're in debug mode or if audio input is not available
+    if DEBUG_MODE or not check_audio_input_available():
+        return text_input_fallback()
+        
+    try:
         with sr.Microphone() as source:
-            self.recognizer.adjust_for_ambient_noise(source, duration=1)
-        logger.info("Ambient noise adjustment complete")
+            print("Listening...")
+            
+            # Adjust for ambient noise
+            recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            
+            # Set dynamic energy threshold
+            recognizer.energy_threshold = 4000
+            recognizer.dynamic_energy_threshold = True
+            
+            # Listen for audio
+            audio = recognizer.listen(
+                source, 
+                timeout=timeout,
+                phrase_time_limit=phrase_time_limit
+            )
+            
+            print("Processing speech...")
+            
+            # Use Google Speech Recognition
+            text = recognizer.recognize_google(audio)
+            print(f"Recognized: {text}")
+            return text
+            
+    except sr.WaitTimeoutError:
+        log_action("Speech recognition timeout - no speech detected", "WARNING")
+        return ""
+    except sr.UnknownValueError:
+        log_action("Speech recognition could not understand audio", "WARNING")
+        return ""
+    except sr.RequestError as e:
+        log_error(f"Could not request results from Google Speech Recognition service", e)
+        return ""
+    except Exception as e:
+        log_error("Error in speech recognition", e)
+        return text_input_fallback()
+
+def text_input_fallback():
+    """
+    Fallback to text input when speech recognition is not available.
     
-    def listen(self, timeout=None, phrase_time_limit=None):
-        """
-        Listen for speech and convert it to text
-        
-        Args:
-            timeout (int, optional): Seconds of non-speaking audio before a phrase is considered complete
-            phrase_time_limit (int, optional): Maximum number of seconds that a phrase continues before stopping
-        
-        Returns:
-            str: The recognized text or an empty string if recognition fails
-        """
-        try:
-            with sr.Microphone() as source:
-                logger.info("Listening...")
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-                
-                try:
-                    logger.info("Recognizing speech...")
-                    text = self.recognizer.recognize_google(audio, language=self.language)
-                    logger.info(f"Recognized: '{text}'")
-                    return text
-                except sr.UnknownValueError:
-                    logger.warning("Speech Recognition could not understand audio")
-                    return ""
-                except sr.RequestError as e:
-                    logger.error(f"Could not request results from Speech Recognition service; {e}")
-                    return ""
-        except Exception as e:
-            logger.error(f"Error in speech recognition: {e}")
-            return ""
+    Returns:
+        str: The text entered by the user
+    """
+    print("\n[DEBUG MODE] Using text input instead of speech recognition")
+    text = input("Type your command (or 'exit' to quit): ")
+    return text
+
+def is_wake_word(text):
+    """
+    Check if the recognized text contains the wake word.
+    
+    Args:
+        text (str): The text to check for wake word
+    
+    Returns:
+        bool: True if wake word found, False otherwise
+    """
+    if not text:
+        return False
+    
+    # In debug mode, allow special commands
+    if DEBUG_MODE and text.lower() == "activate":
+        log_action("Debug wake word detected")
+        return True
+    
+    # Case-insensitive check for wake word
+    wake_word_found = WAKEWORD.lower() in text.lower()
+    
+    if wake_word_found:
+        log_action(f"Wake word detected: {text}")
+    
+    return wake_word_found

@@ -1,54 +1,44 @@
-# core/authentication.py
-import os
-import sys
+# authentication.py - Handles user authentication
 
-# Import settings and logger
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from getpass import getpass
+from speech.text_to_speech import speak
+from speech.speech_recognition import listen
+from logs.logger import log_action, log_error
 from config.settings import ADMIN_PASSWORD
-from config.constants import RESPONSE_ADMIN_MODE, RESPONSE_BASIC_MODE, RESPONSE_AUTH_FAILED
-from logs.logger import logger
 
-class Authenticator:
-    def __init__(self):
-        self.is_authenticated = False
-        self.is_admin = False
+def authenticate_user():
+    """
+    Authenticate the user to determine access level.
     
-    def authenticate(self, password=None):
-        """
-        Authenticate the user based on the provided password
+    Returns:
+        tuple: (is_admin, is_authenticated) boolean values
+    """
+    try:
+        # Ask if the user wants to authenticate as admin
+        speak("Do you want to authenticate as admin? Say yes or no.")
+        response = listen().lower()
         
-        Args:
-            password (str, optional): The password to check. If None, user is authenticated in basic mode.
+        # If user doesn't want admin access, return basic mode
+        if response not in ["yes", "yeah", "yep", "sure", "okay"]:
+            log_action("User chose basic mode")
+            return False, True  # Not admin, but authenticated for basic use
         
-        Returns:
-            tuple: (is_authenticated, is_admin, message)
-        """
-        # If no password is provided, authenticate as basic user
-        if password is None:
-            self.is_authenticated = True
-            self.is_admin = False
-            logger.info("User authenticated in basic mode (no password provided)")
-            return True, False, RESPONSE_BASIC_MODE
+        # Ask for the admin password
+        speak("Please enter the admin password.")
+        print("Enter admin password (input will be hidden): ", end="")
         
-        # Check if the password matches the admin password
+        # Get password from terminal (hidden input)
+        password = getpass("")
+        
+        # Check if password matches
         if password == ADMIN_PASSWORD:
-            self.is_authenticated = True
-            self.is_admin = True
-            logger.info("User authenticated in admin mode")
-            return True, True, RESPONSE_ADMIN_MODE
+            log_action("Admin authentication successful")
+            return True, True  # Admin mode, authenticated
         else:
-            # Invalid password, default to basic mode
-            self.is_authenticated = True
-            self.is_admin = False
-            logger.warning("Authentication failed: incorrect password. Using basic mode.")
-            return True, False, RESPONSE_AUTH_FAILED
-    
-    def check_admin_permission(self):
-        """Check if the current user has admin permissions"""
-        return self.is_admin
-    
-    def reset_authentication(self):
-        """Reset the authentication state"""
-        self.is_authenticated = False
-        self.is_admin = False
-        logger.info("Authentication has been reset")
+            log_action("Admin authentication failed, using basic mode")
+            speak("Incorrect password. Using basic mode.")
+            return False, True  # Not admin, but authenticated for basic use
+            
+    except Exception as e:
+        log_error("Authentication error", e)
+        return False, True  # Default to basic mode on error

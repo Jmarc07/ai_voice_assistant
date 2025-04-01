@@ -1,27 +1,35 @@
-# main.py
-import os
+# main.py - Entry point for starting the assistant
+
 import sys
-
-# Add the project root to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
+import time
 from core.assistant import VoiceAssistant
-from logs.logger import logger
+from logs.logger import setup_logger
 
-def main():
-    """Main entry point for the voice assistant"""
-    try:
-        logger.info("Starting Voice Assistant application...")
-        
-        # Create and start the voice assistant
-        assistant = VoiceAssistant()
-        assistant.start()
-    except Exception as e:
-        logger.critical(f"Critical error in main application: {e}")
-        print(f"Critical error: {e}")
-        return 1
-    
-    return 0
+def print_welcome_message():
+    """Display welcome message and application information."""
+    print("=" * 50)
+    print("        AI-POWERED VOICE ASSISTANT        ")
+    print("=" * 50)
+    print("Starting up your personal voice assistant...")
+    print("Say 'Hey Assistant' to activate")
+    print("=" * 50)
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Set up logging
+    setup_logger()
+    
+    # Display welcome message
+    print_welcome_message()
+    
+    try:
+        # Initialize and start the voice assistant
+        assistant = VoiceAssistant()
+        assistant.start()
+    except KeyboardInterrupt:
+        print("\nShutting down assistant...")
+        time.sleep(1)
+        print("Voice assistant terminated.")
+        sys.exit(0)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        sys.exit(1)

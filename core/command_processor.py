@@ -1,103 +1,106 @@
-# core/command_processor.py
-import os
-import sys
+# command_processor.py - Processes commands and routes to appropriate handlers
 
-# Import settings and modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from logs.logger import log_action, log_error
 from config.constants import (
-    CMD_WEB_SEARCH, CMD_APP_CONTROL, CMD_FILE_MANAGEMENT, 
-    CMD_SYSTEM_CONTROL, RESPONSE_NOT_UNDERSTOOD
+    SEARCH_KEYWORDS, APP_OPEN_KEYWORDS, FILE_CREATE_KEYWORDS,
+    SYSTEM_CONTROL_KEYWORDS, ADMIN_COMMANDS, UNAUTHORIZED_MESSAGE
 )
-from logs.logger import logger
 
-class CommandProcessor:
-    def __init__(self, assistant):
-        self.assistant = assistant
-        logger.info("Command processor initialized")
-        
-        # Import command handlers here to avoid circular imports
-        from commands.web_search import WebSearch
-        from commands.app_control import AppControl
-        from commands.file_management import FileManagement
-        from commands.system_control import SystemControl
-        
-        # Initialize command handlers
-        self.web_search = WebSearch(assistant)
-        self.app_control = AppControl(assistant)
-        self.file_management = FileManagement(assistant)
-        self.system_control = SystemControl(assistant)
+# Import command modules
+from commands.web_search import web_search
+from commands.app_control import open_application
+from commands.file_management import create_file
+from commands.system_control import control_system
+
+def process_command(command, is_admin):
+    """
+    Process a user command and route it to the appropriate handler.
     
-    def process_command(self, command_text, is_admin=False):
-        """
-        Process a command and route it to the appropriate handler
+    Args:
+        command (str): The command to process
+        is_admin (bool): Whether the user is authenticated as admin
         
-        Args:
-            command_text (str): The command text to process
-            is_admin (bool): Whether the user has admin privileges
+    Returns:
+        str: Response message to the user
+    """
+    try:
+        # Convert command to lowercase for easier matching
+        cmd_lower = command.lower()
         
-        Returns:
-            bool: True if the command was processed successfully, False otherwise
-        """
-        if not command_text:
-            logger.warning("Empty command received")
-            self.assistant.respond(RESPONSE_NOT_UNDERSTOOD)
-            return False
+        # Check for admin-only commands
+        if any(admin_cmd in cmd_lower for admin_cmd in ADMIN_COMMANDS) and not is_admin:
+            log_action(f"Unauthorized admin command attempted: {command}")
+            return UNAUTHORIZED_MESSAGE
+            
+        # Route command to appropriate handler based on keywords
         
-        # Log the command
-        logger.log_command(command_text, is_admin)
-        
-        # Convert to lowercase for easier matching
-        command_lower = command_text.lower()
-        
-        # Check for web search commands
-        if any(keyword in command_lower for keyword in CMD_WEB_SEARCH):
-            return self.web_search.handle(command_text, is_admin)
-        
-        # Check for app control commands
-        elif any(keyword in command_lower for keyword in CMD_APP_CONTROL):
-            return self.app_control.handle(command_text, is_admin)
-        
-        # Check for file management commands
-        elif any(keyword in command_lower for keyword in CMD_FILE_MANAGEMENT):
-            return self.file_management.handle(command_text, is_admin)
-        
-        # Check for system control commands (admin only)
-        elif any(keyword in command_lower for keyword in CMD_SYSTEM_CONTROL):
-            if is_admin:
-                return self.system_control.handle(command_text, is_admin)
-            else:
-                logger.warning("Non-admin user attempted to use system control command")
-                self.assistant.respond("Sorry, system control commands require admin mode.")
-                return False
-        
-        # Special commands
-        elif "help" in command_lower:
-            self._show_help(is_admin)
-            return True
-        
-        elif "exit" in command_lower or "goodbye" in command_lower or "bye" in command_lower:
-            self.assistant.respond("Goodbye! Voice assistant is shutting down.")
-            logger.info("Exit command received, shutting down")
-            sys.exit(0)
-        
-        # Command not recognized
+        # Web search commands
+        if any(keyword in cmd_lower for keyword in SEARCH_KEYWORDS):
+            log_action(f"Processing search command: {command}")
+            return web_search(command)
+            
+        # App control commands
+        elif any(keyword in cmd_lower for keyword in APP_OPEN_KEYWORDS):
+            log_action(f"Processing app command: {command}")
+            return open_application(command)
+            
+        # File management commands
+        elif any(keyword in cmd_lower for keyword in FILE_CREATE_KEYWORDS):
+            log_action(f"Processing file command: {command}")
+            return create_file(command)
+            
+        # System control commands (admin check handled within function)
+        elif any(keyword in cmd_lower for keyword in SYSTEM_CONTROL_KEYWORDS):
+            log_action(f"Processing system command: {command}")
+            return control_system(command, is_admin)
+            
+        # Handle help command
+        elif "help" in cmd_lower:
+            log_action("Help command requested")
+            return get_help_message(is_admin)
+            
+        # Handle exit/quit command
+        elif any(word in cmd_lower for word in ["exit", "quit", "goodbye", "bye"]):
+            log_action("Exit command received")
+            return "Goodbye! Say the wake word when you need me again."
+            
+        # Unknown command
         else:
-            logger.warning(f"Unrecognized command: {command_text}")
-            self.assistant.respond(RESPONSE_NOT_UNDERSTOOD)
-            return False
+            log_action(f"Unknown command: {command}")
+            return "I'm not sure how to process that command. Try saying 'help' for available commands."
+            
+    except Exception as e:
+        log_error("Error processing command", e)
+        return "I encountered an error processing your command. Please try again."
+
+def get_help_message(is_admin):
+    """
+    Generate a help message based on user's access level.
     
-    def _show_help(self, is_admin):
-        """Show available commands based on user's access level"""
-        help_text = "Here are some commands you can use:\n"
-        help_text += "- Search for information by saying 'search for' followed by your query\n"
-        help_text += "- Open applications by saying 'open' followed by the app name\n"
-        help_text += "- Create files by saying 'create file' followed by the filename\n"
+    Args:
+        is_admin (bool): Whether the user is authenticated as admin
         
-        if is_admin:
-            help_text += "\nAs an admin, you can also:\n"
-            help_text += "- Control system settings like volume by saying 'volume up' or 'volume down'\n"
-            help_text += "- Shutdown or restart the system\n"
-        
-        help_text += "\nYou can say 'exit' or 'goodbye' to shut down the assistant."
-        
-        self.assistant.respond(help_text)
+    Returns:
+        str: Help message with available commands
+    """
+    basic_commands = [
+        "Search for [topic] - Search the web",
+        "Open [application] - Launch an application",
+        "Create file [filename] - Create a new file",
+        "Help - Show this help message",
+        "Exit/Quit/Goodbye - End the current session"
+    ]
+    
+    admin_commands = [
+        "Volume [up/down/mute] - Control system volume",
+        "Shutdown/Restart - Control system power",
+        "Install [program] - Install new software",
+        "Update system - Check for system updates"
+    ]
+    
+    help_message = "Available commands:\n" + "\n".join(basic_commands)
+    
+    if is_admin:
+        help_message += "\n\nAdmin commands:\n" + "\n".join(admin_commands)
+    
+    return help_message

@@ -1,0 +1,20 @@
+SpeechRecognition==3.10.0
+pyttsx3==2.90
+pyaudio==0.2.13
+openai==0.28.1
+python-dotenv==1.0.0
+numpy==1.24.3
+requests==2.29.0
+
+# External dependencies (install with your system's package manager):
+# On Debian/Ubuntu Linux:
+#   sudo apt-get install espeak
+#   sudo apt-get install alsa-utils  # Provides aplay
+#   sudo apt-get install python3-pyaudio
+#
+# On Windows:
+#   No additional dependencies required
+#
+# On macOS:
+#   brew install portaudio
+#   pip install pyaudio

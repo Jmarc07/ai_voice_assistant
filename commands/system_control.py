@@ -1,361 +1,236 @@
-# commands/system_control.py
+# system_control.py - Handles system control functions
+
 import os
-import sys
-import re
-import subprocess
 import platform
+import subprocess
+import re
+from logs.logger import log_action, log_error
+from config.constants import SYSTEM_CONTROL_KEYWORDS, UNAUTHORIZED_MESSAGE
 
-# Import settings and modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from config.constants import CMD_SYSTEM_CONTROL
-from logs.logger import logger
-
-class SystemControl:
-    def __init__(self, assistant):
-        self.assistant = assistant
-        self.system = platform.system()
-        logger.info(f"System control handler initialized for {self.system} platform")
+def control_system(command, is_admin):
+    """
+    Control system functions based on the command.
     
-    def handle(self, command, is_admin=False):
-        """
-        Handle system control commands (admin only)
+    Args:
+        command (str): The system control command
+        is_admin (bool): Whether the user is authenticated as admin
         
-        Args:
-            command (str): The system control command
-            is_admin (bool): Whether the user has admin privileges
+    Returns:
+        str: Response message
+    """
+    try:
+        # Convert command to lowercase for easier matching
+        cmd_lower = command.lower()
         
-        Returns:
-            bool: True if the command was handled successfully, False otherwise
-        """
-        # Double check admin privileges
-        if not is_admin:
-            logger.warning("Non-admin user attempted to use system control command")
-            self.assistant.respond("Sorry, system control commands require admin mode.")
-            return False
-        
-        try:
-            # Process volume control commands
-            if "volume" in command.lower():
-                return self._handle_volume_control(command)
+        # Check for volume control
+        if "volume" in cmd_lower:
+            return control_volume(cmd_lower)
             
-            # Process brightness control commands
-            elif "brightness" in command.lower():
-                return self._handle_brightness_control(command)
-            
-            # Process shutdown/restart commands
-            elif "shutdown" in command.lower() or "power off" in command.lower():
-                return self._handle_shutdown()
-            
-            elif "restart" in command.lower() or "reboot" in command.lower():
-                return self._handle_restart()
-            
-            # Command not recognized
+        # Check for shutdown/restart (admin only)
+        elif any(word in cmd_lower for word in ["shutdown", "restart", "reboot"]):
+            if not is_admin:
+                log_action("Unauthorized shutdown/restart attempt")
+                return UNAUTHORIZED_MESSAGE
             else:
-                logger.warning(f"Unrecognized system control command: {command}")
-                self.assistant.respond("I don't understand that system control command.")
-                return False
+                return power_control(cmd_lower)
                 
-        except Exception as e:
-            logger.error(f"Error in system control: {e}")
-            self.assistant.respond("I had trouble performing that system operation.")
-            return False
-    
-    def _handle_volume_control(self, command):
-        """Handle volume up/down/mute commands"""
-        # Extract direction (up, down, mute)
-        if "up" in command.lower() or "increase" in command.lower():
-            direction = "up"
-        elif "down" in command.lower() or "decrease" in command.lower() or "lower" in command.lower():
-            direction = "down"
-        elif "mute" in command.lower():
-            direction = "mute"
+        # Check for system updates (admin only)
+        elif "update" in cmd_lower and "system" in cmd_lower:
+            if not is_admin:
+                log_action("Unauthorized system update attempt")
+                return UNAUTHORIZED_MESSAGE
+            else:
+                return check_for_updates()
+                
+        # Unknown system command
         else:
-            self.assistant.respond("Please specify if you want to turn the volume up, down, or mute it.")
-            return False
-        
-        # Get volume change level if specified
-        level = 10  # Default change percentage
-        match = re.search(r'(\d+)(?:\s*percent|\s*%)?', command)
-        if match:
-            level = int(match.group(1))
-            level = max(1, min(100, level))  # Ensure level is between 1 and 100
-        
-        logger.info(f"Adjusting volume {direction} by {level}%")
-        
-        # Adjust volume based on operating system
-        if self.system == 'Windows':
-            return self._adjust_volume_windows(direction, level)
-        elif self.system == 'Darwin':  # macOS
-            return self._adjust_volume_macos(direction, level)
-        elif self.system == 'Linux':
-            return self._adjust_volume_linux(direction, level)
-        else:
-            logger.error(f"Unsupported operating system for volume control: {self.system}")
-            self.assistant.respond(f"Volume control is not supported on {self.system}.")
-            return False
+            return "I'm not sure how to perform that system operation."
+            
+    except Exception as e:
+        log_error("Error in system control", e)
+        return "I encountered an error trying to control the system."
+
+def control_volume(command):
+    """
+    Control system volume.
     
-    def _adjust_volume_windows(self, direction, level):
-        """Adjust volume on Windows"""
-        try:
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+    Args:
+        command (str): The volume control command
+        
+    Returns:
+        str: Response message
+    """
+    try:
+        current_os = platform.system().lower()
+        
+        # Extract volume level if specified
+        volume_level = None
+        level_match = re.search(r'(\d+)(?:\s*%)?', command)
+        if level_match:
+            volume_level = int(level_match.group(1))
             
-            devices = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            volume = cast(interface, POINTER(IAudioEndpointVolume))
+        # Check for volume up/down/mute
+        if "up" in command or "increase" in command:
+            if current_os == "windows":
+                # Windows volume up
+                for _ in range(5):  # Press volume up key multiple times
+                    subprocess.run("powershell -c (New-Object -ComObject WScript.Shell).SendKeys([char]175)", shell=True)
+            elif current_os == "darwin":  # macOS
+                subprocess.run("osascript -e 'set volume output volume (output volume of (get volume settings) + 10)'", shell=True)
+            elif current_os == "linux":
+                subprocess.run("amixer -D pulse sset Master 10%+", shell=True)
+                
+            return "I've increased the volume."
             
-            # Get current volume
-            current_vol = volume.GetMasterVolumeLevelScalar() * 100
+        elif "down" in command or "decrease" in command or "lower" in command:
+            if current_os == "windows":
+                # Windows volume down
+                for _ in range(5):  # Press volume down key multiple times
+                    subprocess.run("powershell -c (New-Object -ComObject WScript.Shell).SendKeys([char]174)", shell=True)
+            elif current_os == "darwin":  # macOS
+                subprocess.run("osascript -e 'set volume output volume (output volume of (get volume settings) - 10)'", shell=True)
+            elif current_os == "linux":
+                subprocess.run("amixer -D pulse sset Master 10%-", shell=True)
+                
+            return "I've decreased the volume."
             
-            if direction == "up":
-                new_vol = min(100, current_vol + level)
-                volume.SetMasterVolumeLevelScalar(new_vol / 100, None)
-                self.assistant.respond(f"Volume increased to {int(new_vol)}%")
-            elif direction == "down":
-                new_vol = max(0, current_vol - level)
-                volume.SetMasterVolumeLevelScalar(new_vol / 100, None)
-                self.assistant.respond(f"Volume decreased to {int(new_vol)}%")
-            elif direction == "mute":
-                mute_state = volume.GetMute()
-                volume.SetMute(not mute_state, None)
-                self.assistant.respond("Volume muted" if not mute_state else "Volume unmuted")
+        elif "mute" in command or "unmute" in command:
+            if current_os == "windows":
+                # Windows mute toggle
+                subprocess.run("powershell -c (New-Object -ComObject WScript.Shell).SendKeys([char]173)", shell=True)
+            elif current_os == "darwin":  # macOS
+                subprocess.run("osascript -e 'set volume output muted not (output muted of (get volume settings))'", shell=True)
+            elif current_os == "linux":
+                subprocess.run("amixer -D pulse set Master 1+ toggle", shell=True)
+                
+            return "I've toggled mute."
             
-            return True
-        except ImportError:
-            # Fallback to nircmd if pycaw is not available
+        elif volume_level is not None:
+            # Set to specific volume level
+            if volume_level < 0 or volume_level > 100:
+                return "Volume level must be between 0 and 100 percent."
+                
+            if current_os == "windows":
+                # Windows set volume (approximate)
+                level = int((65535 * volume_level) / 100)
+                subprocess.run(f"powershell -c \"[Audio]::Volume = {volume_level / 100}\"", shell=True)
+            elif current_os == "darwin":  # macOS
+                subprocess.run(f"osascript -e 'set volume output volume {volume_level}'", shell=True)
+            elif current_os == "linux":
+                subprocess.run(f"amixer -D pulse sset Master {volume_level}%", shell=True)
+                
+            return f"I've set the volume to {volume_level} percent."
+            
+        else:
+            return "Please specify how you want to adjust the volume (up, down, mute, or a specific percentage)."
+            
+    except Exception as e:
+        log_error("Error controlling volume", e)
+        return "I encountered an error trying to control the volume."
+
+def power_control(command):
+    """
+    Control system power (shutdown/restart).
+    
+    Args:
+        command (str): The power control command
+        
+    Returns:
+        str: Response message
+    """
+    try:
+        current_os = platform.system().lower()
+        
+        # Check for shutdown
+        if "shutdown" in command:
+            log_action("Executing shutdown command")
+            
+            if current_os == "windows":
+                subprocess.run("shutdown /s /t 60", shell=True)
+                return "I'll shut down your computer in 60 seconds. To cancel, say 'cancel shutdown'."
+            elif current_os in ["darwin", "linux"]:  # macOS or Linux
+                subprocess.run("sudo shutdown -h +1", shell=True)
+                return "I'll shut down your computer in 1 minute. To cancel, use 'sudo shutdown -c'."
+            else:
+                return "I don't know how to shut down this operating system."
+                
+        # Check for restart
+        elif any(word in command for word in ["restart", "reboot"]):
+            log_action("Executing restart command")
+            
+            if current_os == "windows":
+                subprocess.run("shutdown /r /t 60", shell=True)
+                return "I'll restart your computer in 60 seconds. To cancel, say 'cancel restart'."
+            elif current_os in ["darwin", "linux"]:  # macOS or Linux
+                subprocess.run("sudo shutdown -r +1", shell=True)
+                return "I'll restart your computer in 1 minute. To cancel, use 'sudo shutdown -c'."
+            else:
+                return "I don't know how to restart this operating system."
+                
+        # Check for cancel
+        elif "cancel" in command:
+            log_action("Cancelling power command")
+            
+            if current_os == "windows":
+                subprocess.run("shutdown /a", shell=True)
+                return "I've cancelled the shutdown or restart."
+            elif current_os in ["darwin", "linux"]:  # macOS or Linux
+                subprocess.run("sudo shutdown -c", shell=True)
+                return "I've cancelled the shutdown or restart."
+            else:
+                return "I don't know how to cancel power commands on this operating system."
+                
+        else:
+            return "Please specify whether you want to shut down or restart the computer."
+            
+    except Exception as e:
+        log_error("Error in power control", e)
+        return "I encountered an error trying to control system power."
+
+def check_for_updates():
+    """
+    Check for system updates.
+    
+    Returns:
+        str: Response message
+    """
+    try:
+        current_os = platform.system().lower()
+        
+        log_action("Checking for system updates")
+        
+        if current_os == "windows":
+            # Windows update check
+            subprocess.Popen("start ms-settings:windowsupdate", shell=True)
+            return "I've opened Windows Update for you to check for updates."
+            
+        elif current_os == "darwin":  # macOS
+            # macOS update check
+            subprocess.Popen("open macappstore://showUpdatesPage", shell=True)
+            return "I've opened the App Store updates page for you to check for updates."
+            
+        elif current_os == "linux":
+            # Linux update check (for apt-based systems)
             try:
-                if direction == "up":
-                    subprocess.call(["nircmd.exe", "changesysvolume", str(655.35 * level)])
-                    self.assistant.respond(f"Volume increased by {level}%")
-                elif direction == "down":
-                    subprocess.call(["nircmd.exe", "changesysvolume", str(-655.35 * level)])
-                    self.assistant.respond(f"Volume decreased by {level}%")
-                elif direction == "mute":
-                    subprocess.call(["nircmd.exe", "mutesysvolume", "2"])
-                    self.assistant.respond("Volume toggled mute/unmute")
-                return True
-            except Exception as e:
-                logger.error(f"Error adjusting volume with nircmd: {e}")
-                self.assistant.respond("I couldn't adjust the volume. Make sure nircmd is installed.")
-                return False
-        except Exception as e:
-            logger.error(f"Error adjusting Windows volume: {e}")
-            self.assistant.respond("I had trouble adjusting the volume.")
-            return False
-    
-    def _adjust_volume_macos(self, direction, level):
-        """Adjust volume on macOS"""
-        try:
-            if direction == "up":
-                # Convert percentage to osascript volume (0-100)
-                subprocess.call(["osascript", "-e", f"set volume output volume (output volume of (get volume settings) + {level}) --100%"])
-                self.assistant.respond(f"Volume increased by {level}%")
-            elif direction == "down":
-                subprocess.call(["osascript", "-e", f"set volume output volume (output volume of (get volume settings) - {level}) --100%"])
-                self.assistant.respond(f"Volume decreased by {level}%")
-            elif direction == "mute":
-                subprocess.call(["osascript", "-e", "set volume with output muted"])
-                self.assistant.respond("Volume muted")
-            return True
-        except Exception as e:
-            logger.error(f"Error adjusting macOS volume: {e}")
-            self.assistant.respond("I had trouble adjusting the volume.")
-            return False
-    
-    def _adjust_volume_linux(self, direction, level):
-        """Adjust volume on Linux"""
-        try:
-            if direction == "up":
-                subprocess.call(["amixer", "-D", "pulse", "sset", "Master", f"{level}%+"])
-                self.assistant.respond(f"Volume increased by {level}%")
-            elif direction == "down":
-                subprocess.call(["amixer", "-D", "pulse", "sset", "Master", f"{level}%-"])
-                self.assistant.respond(f"Volume decreased by {level}%")
-            elif direction == "mute":
-                subprocess.call(["amixer", "-D", "pulse", "sset", "Master", "toggle"])
-                self.assistant.respond("Volume toggled mute/unmute")
-            return True
-        except Exception as e:
-            logger.error(f"Error adjusting Linux volume: {e}")
-            self.assistant.respond("I had trouble adjusting the volume. Make sure ALSA tools are installed.")
-            return False
-    
-    def _handle_brightness_control(self, command):
-        """Handle screen brightness adjustment"""
-        # Extract direction (up or down)
-        if "up" in command.lower() or "increase" in command.lower():
-            direction = "up"
-        elif "down" in command.lower() or "decrease" in command.lower() or "lower" in command.lower():
-            direction = "down"
+                # Try to use apt update
+                update_process = subprocess.Popen(
+                    "sudo apt update",
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                stdout, stderr = update_process.communicate()
+                
+                if update_process.returncode == 0:
+                    return "System update check completed. Please use the terminal to see available updates."
+                else:
+                    return "I couldn't check for updates. Your system might not use apt, or there might be an issue with permissions."
+            except:
+                return "I couldn't check for updates on your Linux system."
+                
         else:
-            self.assistant.respond("Please specify if you want to turn the brightness up or down.")
-            return False
-        
-        # Get brightness change level if specified
-        level = 10  # Default change percentage
-        match = re.search(r'(\d+)(?:\s*percent|\s*%)?', command)
-        if match:
-            level = int(match.group(1))
-            level = max(1, min(100, level))  # Ensure level is between 1 and 100
-        
-        logger.info(f"Adjusting brightness {direction} by {level}%")
-        
-        # Adjust brightness based on operating system
-        if self.system == 'Windows':
-            return self._adjust_brightness_windows(direction, level)
-        elif self.system == 'Darwin':  # macOS
-            return self._adjust_brightness_macos(direction, level)
-        elif self.system == 'Linux':
-            return self._adjust_brightness_linux(direction, level)
-        else:
-            logger.error(f"Unsupported operating system for brightness control: {self.system}")
-            self.assistant.respond(f"Brightness control is not supported on {self.system}.")
-            return False
-    
-    def _adjust_brightness_windows(self, direction, level):
-        """Adjust screen brightness on Windows"""
-        try:
-            import wmi
+            return "I don't know how to check for updates on this operating system."
             
-            # Connect to WMI
-            wmi_interface = wmi.WMI(namespace='wmi')
-            monitors = wmi_interface.WmiMonitorBrightnessMethods()
-            
-            if not monitors:
-                logger.warning("No monitors found for brightness adjustment")
-                self.assistant.respond("I couldn't find any monitors to adjust brightness.")
-                return False
-            
-            # Get current brightness
-            brightness_info = wmi_interface.WmiMonitorBrightness()[0]
-            current_brightness = brightness_info.CurrentBrightness
-            
-            # Calculate new brightness
-            if direction == "up":
-                new_brightness = min(100, current_brightness + level)
-            else:  # direction == "down"
-                new_brightness = max(0, current_brightness - level)
-            
-            # Set new brightness
-            for monitor in monitors:
-                monitor.WmiSetBrightness(new_brightness, 0)
-            
-            self.assistant.respond(f"Brightness {'increased' if direction == 'up' else 'decreased'} to {new_brightness}%")
-            return True
-        except ImportError:
-            logger.error("WMI module not found for Windows brightness control")
-            self.assistant.respond("I couldn't adjust the brightness. The WMI module is not installed.")
-            return False
-        except Exception as e:
-            logger.error(f"Error adjusting Windows brightness: {e}")
-            self.assistant.respond("I had trouble adjusting the brightness.")
-            return False
-    
-    def _adjust_brightness_macos(self, direction, level):
-        """Adjust screen brightness on macOS"""
-        try:
-            if direction == "up":
-                # Use AppleScript to increase brightness
-                subprocess.call(["osascript", "-e", "tell application \"System Events\" to key code 144"])
-                self.assistant.respond("Brightness increased")
-            else:  # direction == "down"
-                # Use AppleScript to decrease brightness
-                subprocess.call(["osascript", "-e", "tell application \"System Events\" to key code 145"])
-                self.assistant.respond("Brightness decreased")
-            return True
-        except Exception as e:
-            logger.error(f"Error adjusting macOS brightness: {e}")
-            self.assistant.respond("I had trouble adjusting the brightness.")
-            return False
-    
-    def _adjust_brightness_linux(self, direction, level):
-        """Adjust screen brightness on Linux"""
-        try:
-            # Find the brightness file
-            brightness_file = "/sys/class/backlight/intel_backlight/brightness"
-            max_brightness_file = "/sys/class/backlight/intel_backlight/max_brightness"
-            
-            # If intel_backlight doesn't exist, try acpi_video0
-            if not os.path.exists(brightness_file):
-                brightness_file = "/sys/class/backlight/acpi_video0/brightness"
-                max_brightness_file = "/sys/class/backlight/acpi_video0/max_brightness"
-            
-            # Read current brightness
-            with open(brightness_file, 'r') as f:
-                current_brightness = int(f.read().strip())
-            
-            # Read max brightness
-            with open(max_brightness_file, 'r') as f:
-                max_brightness = int(f.read().strip())
-            
-            # Calculate current percentage
-            current_percent = (current_brightness / max_brightness) * 100
-            
-            # Calculate new percentage
-            if direction == "up":
-                new_percent = min(100, current_percent + level)
-            else:  # direction == "down"
-                new_percent = max(5, current_percent - level)  # Don't go below 5%
-            
-            # Calculate new brightness value
-            new_brightness = int((new_percent / 100) * max_brightness)
-            
-            # Write new brightness with sudo
-            sudo_cmd = ["sudo", "sh", "-c", f"echo {new_brightness} > {brightness_file}"]
-            subprocess.call(sudo_cmd)
-            
-            self.assistant.respond(f"Brightness {'increased' if direction == 'up' else 'decreased'} to {int(new_percent)}%")
-            return True
-        except Exception as e:
-            logger.error(f"Error adjusting Linux brightness: {e}")
-            self.assistant.respond("I had trouble adjusting the brightness. Make sure you have proper permissions.")
-            return False
-    
-    def _handle_shutdown(self):
-        """Handle system shutdown command"""
-        self.assistant.respond("Are you sure you want to shut down the system? Say 'yes' to confirm.")
-        
-        # Listen for confirmation
-        confirmation = self.assistant.speech_recognizer.listen(phrase_time_limit=3)
-        
-        if confirmation and ('yes' in confirmation.lower() or 'yeah' in confirmation.lower() or 'confirm' in confirmation.lower()):
-            self.assistant.respond("Shutting down the system now. Goodbye!")
-            logger.info("Executing system shutdown")
-            
-            # Shutdown based on operating system
-            if self.system == 'Windows':
-                subprocess.call(["shutdown", "/s", "/t", "10"])
-            elif self.system == 'Darwin':  # macOS
-                subprocess.call(["osascript", "-e", 'tell app "System Events" to shut down'])
-            elif self.system == 'Linux':
-                subprocess.call(["sudo", "shutdown", "-h", "now"])
-            
-            return True
-        else:
-            self.assistant.respond("Shutdown cancelled.")
-            return False
-    
-    def _handle_restart(self):
-        """Handle system restart command"""
-        self.assistant.respond("Are you sure you want to restart the system? Say 'yes' to confirm.")
-        
-        # Listen for confirmation
-        confirmation = self.assistant.speech_recognizer.listen(phrase_time_limit=3)
-        
-        if confirmation and ('yes' in confirmation.lower() or 'yeah' in confirmation.lower() or 'confirm' in confirmation.lower()):
-            self.assistant.respond("Restarting the system now. Goodbye!")
-            logger.info("Executing system restart")
-            
-            # Restart based on operating system
-            if self.system == 'Windows':
-                subprocess.call(["shutdown", "/r", "/t", "10"])
-            elif self.system == 'Darwin':  # macOS
-                subprocess.call(["osascript", "-e", 'tell app "System Events" to restart'])
-            elif self.system == 'Linux':
-                subprocess.call(["sudo", "shutdown", "-r", "now"])
-            
-            return True
-        else:
-            self.assistant.respond("Restart cancelled.")
-            return False
+    except Exception as e:
+        log_error("Error checking for updates", e)
+        return "I encountered an error trying to check for system updates."

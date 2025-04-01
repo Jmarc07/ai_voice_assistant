@@ -1,138 +1,95 @@
-# commands/web_search.py
-import os
-import sys
+# web_search.py - Handles web search functionality
+
 import webbrowser
-import requests
 import re
-
-# Import settings and modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from logs.logger import log_action, log_error
 from config.settings import GOOGLE_SEARCH_API_KEY, GOOGLE_SEARCH_ENGINE_ID
-from logs.logger import logger
+from config.constants import SEARCH_KEYWORDS
 
-class WebSearch:
-    def __init__(self, assistant):
-        self.assistant = assistant
-        self.use_api = GOOGLE_SEARCH_API_KEY and GOOGLE_SEARCH_ENGINE_ID
-        logger.info("Web search handler initialized")
+def web_search(command):
+    """
+    Perform a web search based on the command.
     
-    def handle(self, command, is_admin=False):
-        """
-        Handle web search commands
+    Args:
+        command (str): The search command
         
-        Args:
-            command (str): The search command
-            is_admin (bool): Whether the user has admin privileges
+    Returns:
+        str: Response message
+    """
+    try:
+        # Extract search query by removing search keywords
+        search_query = command.lower()
+        for keyword in SEARCH_KEYWORDS:
+            search_query = re.sub(f"{keyword}\\s+", "", search_query, flags=re.IGNORECASE)
         
-        Returns:
-            bool: True if the command was handled successfully, False otherwise
-        """
-        try:
-            # Extract the search query from the command
-            search_terms = self._extract_search_query(command)
+        # Clean up the query
+        search_query = search_query.strip()
+        
+        if not search_query:
+            return "What would you like me to search for?"
+        
+        log_action(f"Searching for: {search_query}")
+        
+        # Check if we have API keys for Google Custom Search
+        if GOOGLE_SEARCH_API_KEY != "your_google_api_key_here" and GOOGLE_SEARCH_ENGINE_ID != "your_search_engine_id_here":
+            # Use Google Custom Search API (would require additional implementation)
+            return perform_api_search(search_query)
+        else:
+            # Use simple browser search as fallback
+            return perform_browser_search(search_query)
             
-            if not search_terms:
-                self.assistant.respond("What would you like me to search for?")
-                return False
-            
-            logger.info(f"Searching for: {search_terms}")
-            self.assistant.respond(f"Searching for {search_terms}...")
-            
-            # Perform the search
-            if self.use_api:
-                results = self._search_with_api(search_terms)
-                if results:
-                    self._report_results(results)
-                    return True
-            
-            # Fallback to browser search if API fails or is not configured
-            self._search_with_browser(search_terms)
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error in web search: {e}")
-            self.assistant.respond("I had trouble performing that search.")
-            return False
+    except Exception as e:
+        log_error("Error during web search", e)
+        return "I encountered an error while trying to search. Please try again."
+
+def perform_browser_search(query):
+    """
+    Perform a search by opening the default web browser.
     
-    def _extract_search_query(self, command):
-        """Extract the search query from the command"""
-        # Remove search keywords from the command
-        search_patterns = [
-            r'search (?:for |about |)(.+)',
-            r'look up (.+)',
-            r'find (?:info about |information about |info on |information on |)(.+)',
-            r'google (.+)'
-        ]
+    Args:
+        query (str): The search query
         
-        for pattern in search_patterns:
-            match = re.search(pattern, command.lower())
-            if match:
-                return match.group(1).strip()
+    Returns:
+        str: Response message
+    """
+    try:
+        # Encode query for URL
+        encoded_query = query.replace(' ', '+')
         
-        # If no pattern matches, use everything after "search"
-        if "search" in command.lower():
-            return command.lower().split("search", 1)[1].strip()
+        # Create Google search URL
+        url = f"https://www.google.com/search?q={encoded_query}"
         
-        return command.strip()
+        # Open in default browser
+        webbrowser.open(url)
+        
+        return f"I've opened a search for '{query}' in your browser."
+        
+    except Exception as e:
+        log_error("Error opening browser for search", e)
+        return "I couldn't open the browser for search. Please check your internet connection."
+
+def perform_api_search(query):
+    """
+    Perform a search using Google Custom Search API.
     
-    def _search_with_api(self, query):
-        """Perform a search using the Google Custom Search API"""
-        if not self.use_api:
-            return None
+    Args:
+        query (str): The search query
         
-        try:
-            url = "https://www.googleapis.com/customsearch/v1"
-            params = {
-                'q': query,
-                'key': GOOGLE_SEARCH_API_KEY,
-                'cx': GOOGLE_SEARCH_ENGINE_ID,
-                'num': 5  # Number of results to return
-            }
-            
-            response = requests.get(url, params=params)
-            
-            if response.status_code == 200:
-                results = response.json()
-                if 'items' in results:
-                    return results['items']
-                else:
-                    logger.warning("No search results found")
-            else:
-                logger.error(f"API error: {response.status_code} - {response.text}")
-            
-            return None
-        except Exception as e:
-            logger.error(f"Error using search API: {e}")
-            return None
-    
-    def _search_with_browser(self, query):
-        """Open a web browser with the search query"""
-        search_url = f"https://www.google.com/search?q={query}"
-        webbrowser.open(search_url)
-        self.assistant.respond(f"I've opened a web browser with search results for {query}.")
-    
-    def _report_results(self, results):
-        """Report the search results to the user"""
-        if not results:
-            self.assistant.respond("I couldn't find any results for that search.")
-            return
+    Returns:
+        str: Response with search results
+    """
+    try:
+        # Note: This is a placeholder. To fully implement, you would need to:
+        # 1. Import requests library
+        # 2. Make an API call to Google Custom Search
+        # 3. Process and return the results
         
-        response = f"I found {len(results)} results. Here's the top result: "
+        # This would require additional implementation with the requests library
+        log_action("API search capability not fully implemented")
         
-        # Get the title and snippet from the first result
-        top_result = results[0]
-        title = top_result.get('title', 'Untitled')
-        snippet = top_result.get('snippet', 'No description available.')
+        # Fallback to browser search
+        return perform_browser_search(query)
         
-        response += f"{title}. {snippet}"
-        
-        self.assistant.respond(response)
-        
-        # Ask if user wants more details
-        self.assistant.respond("Would you like me to open the search results in a browser?")
-        
-        # Listen for response
-        answer = self.assistant.speech_recognizer.listen(phrase_time_limit=3)
-        
-        if answer and ('yes' in answer.lower() or 'yeah' in answer.lower() or 'sure' in answer.lower()):
-            self._search_with_browser(results[0].get('link', f"https://www.google.com/search?q={results[0].get('title')}"))
+    except Exception as e:
+        log_error("Error during API search", e)
+        return "I encountered an error with the search API. Falling back to browser search."

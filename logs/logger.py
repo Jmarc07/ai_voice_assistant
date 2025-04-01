@@ -1,70 +1,62 @@
-# logs/logger.py
+# logger.py - Handles logging of assistant's actions
+
 import logging
 import os
-import sys
-from datetime import datetime
-from pathlib import Path
-
-# Import settings
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import datetime
 from config.settings import LOG_FILE, LOG_LEVEL
 
-class Logger:
-    def __init__(self):
-        # Create logs directory if it doesn't exist
-        log_dir = Path(os.path.dirname(__file__))
-        log_dir.mkdir(exist_ok=True)
-        
-        # Set up logging configuration
-        log_levels = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO,
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR,
-            "CRITICAL": logging.CRITICAL
-        }
-        
-        # Set log level (default to INFO if setting is invalid)
-        log_level = log_levels.get(LOG_LEVEL, logging.INFO)
-        
-        # Configure the logger
-        logging.basicConfig(
-            filename=os.path.join(log_dir, LOG_FILE),
-            level=log_level,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        
-        # Add console handler to display logs in console as well
-        console = logging.StreamHandler()
-        console.setLevel(log_level)
-        formatter = logging.Formatter('%(levelname)s - %(message)s')
-        console.setFormatter(formatter)
-        logging.getLogger('').addHandler(console)
+def setup_logger():
+    """Set up the logger for the voice assistant."""
     
-    def debug(self, message):
-        logging.debug(message)
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.dirname(LOG_FILE)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
     
-    def info(self, message):
-        logging.info(message)
+    # Convert string log level to logging level
+    numeric_level = getattr(logging, LOG_LEVEL.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f"Invalid log level: {LOG_LEVEL}")
     
-    def warning(self, message):
-        logging.warning(message)
+    # Configure the logger
+    logging.basicConfig(
+        filename=LOG_FILE,
+        level=numeric_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
     
-    def error(self, message):
-        logging.error(message)
-    
-    def critical(self, message):
-        logging.critical(message)
-    
-    def log_command(self, command, is_admin=False):
-        """Log commands with admin status"""
-        mode = "ADMIN" if is_admin else "BASIC"
-        logging.info(f"[{mode} MODE] Command: {command}")
-    
-    def log_response(self, response):
-        """Log assistant responses"""
-        logging.info(f"Assistant Response: {response}")
+    # Log application startup
+    logging.info("Voice Assistant started")
 
-# Create a global logger instance
-logger = Logger()
+def log_action(action, level="INFO"):
+    """Log an action performed by the assistant.
+    
+    Args:
+        action (str): The action to log
+        level (str): Log level (INFO, WARNING, ERROR, etc.)
+    """
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    logging.log(log_level, action)
+
+def log_command(command, is_admin=False):
+    """Log a user command.
+    
+    Args:
+        command (str): The command issued by the user
+        is_admin (bool): Whether the command was issued in admin mode
+    """
+    mode = "ADMIN" if is_admin else "BASIC"
+    logging.info(f"[{mode} MODE] Command: {command}")
+
+def log_error(error_message, exception=None):
+    """Log an error that occurred.
+    
+    Args:
+        error_message (str): Description of the error
+        exception (Exception, optional): The exception object
+    """
+    if exception:
+        logging.error(f"{error_message}: {str(exception)}")
+    else:
+        logging.error(error_message)
