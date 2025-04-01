@@ -11,8 +11,8 @@ VOICE_VOLUME = 1.0  # Volume level (0.0 to 1.0)
 VOICE_GENDER = "male"  # Options: 'male' or 'female'
 
 # API Keys (replace with your actual keys)
-GOOGLE_SEARCH_API_KEY = " AIzaSyDD1l2QvC1Bjs6hxmo1xsEPPnGf16Yvnfw "
-GOOGLE_SEARCH_ENGINE_ID = "6492403860b204006"
+GOOGLE_SEARCH_API_KEY = " your_google_api_key_here"
+GOOGLE_SEARCH_ENGINE_ID = " your_search_engine_id_here"
 
 # Application paths (customize for your system)
 DEFAULT_BROWSER = "chrome"
